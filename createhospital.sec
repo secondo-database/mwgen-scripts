@@ -1,0 +1,154 @@
+#create database hospital;
+#open database hospital;
+
+
+restore hospital_rooms_0 from 'TM-Data/FloorPlan/hospital.groom0';
+
+restore hospital_rooms_1 from 'TM-Data/FloorPlan/hospital.groom1';
+
+restore hospital_rooms_2 from 'TM-Data/FloorPlan/hospital.groom2';
+
+restore hospital_rooms_3 from 'TM-Data/FloorPlan/hospital.groom3';
+
+restore hospital_staircase from 'TM-Data/FloorPlan/hospital.staircase';
+
+let hospital_oid = 1;
+
+let hospital = hospital_rooms_0 feed hospital_rooms_1 feed concat hospital_rooms_2 feed concat hospital_rooms_3 feed concat hospital_staircase feed concat addcounter[Oid, hospital_oid] project[Oid, Name, Type, Room, Door] consume;
+
+delete hospital_rooms_0;
+
+delete hospital_rooms_1;
+
+delete hospital_rooms_2;
+
+delete hospital_rooms_3;
+
+delete hospital_staircase;
+
+############ all doors  ##########
+
+let hospital_d = createdoor3d(hospital) consume; 
+
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel_hospital = createdoorbox(hospital) consume;
+
+let rtree_box3d_hospital = box3d_rel_hospital feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+
+# node relation for the graph 
+let node_rel1_hospital = createdoor1(hospital, box3d_rel_hospital, rtree_box3d_hospital, Groom_oid, Groom_tid, Box3d) consume;
+
+#virtual doors 
+let node_rel2_hospital = createdoor2(hospital) consume; 
+
+let node_rel_hospital = node_rel1_hospital feed node_rel2_hospital feed concat consume; 
+
+
+#btree on groom id 
+let btree_gid_hospital = node_rel_hospital createbtree[Groom_oid1]; 
+
+delete node_rel1_hospital;
+
+delete node_rel2_hospital;
+
+delete box3d_rel_hospital;
+
+delete rtree_box3d_hospital;
+
+
+######################create indoor graph edges #######################
+
+## edge relation for the graph ##
+let edge_rel1_hospital = createadjdoor1(hospital, node_rel_hospital, btree_gid_hospital, Door, Door_loc, Groom_oid1, Doorheight) consume;
+
+
+let rtree_node_hospital = node_rel_hospital feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox];
+
+## the same spatial door, but can belong to two rooms, build the connection between them
+
+let edge_rel2_hospital = createadjdoor2(node_rel_hospital, rtree_node_hospital) consume;
+
+let edge_rel_hospital = edge_rel1_hospital feed edge_rel2_hospital feed concat consume; 
+
+delete edge_rel1_hospital;
+
+delete edge_rel2_hospital;
+
+delete btree_gid_hospital; 
+
+delete rtree_node_hospital;
+
+##########################################
+#########indoor navigation graph #########
+##########################################
+
+let ig_hospital = createigraph(6, node_rel_hospital, edge_rel_hospital, "HOSPITAL");
+
+delete node_rel_hospital;
+
+delete edge_rel_hospital;
+
+
+#let ip_hospital = generate_ip1(hospital, 30, TRUE) consume;
+
+### for doing indoor navigation experiments 
+let ip_hospital = generate_ip1(hospital, 500, TRUE) consume;
+
+#location on the staircase
+
+#let ip_hospital_2 = generate_ip1(hospital, 20, FALSE) consume;
+
+let ip_hospital_2 = generate_ip1(hospital, 500, FALSE) consume;
+
+let btree_groom_hospital = hospital createbtree[Oid];
+
+###########################################################################
+############################# Query #######################################
+###########################################################################
+
+#query hospital;
+#query hospital_d; 
+########## length ##########
+#query indoornavigation(ig_hospital, ip_hospital feed addcounter[Id,1] filter[.Id = 23] extract[Loc1],ip_hospital feed addcounter[Id,1] filter[.Id = 3] extract[Loc1], hospital, btree_groom_hospital, 0) consume;
+
+#query indoornavigation(ig_hospital, ip_hospital_2 feed addcounter[Id,1] filter[.Id = 23] extract[Loc1],ip_hospital_2 feed addcounter[Id,1] filter[.Id = 3] extract[Loc1], hospital, btree_groom_hospital, 0) consume;
+
+######## room #############
+#query indoornavigation(ig_hospital, ip_hospital feed addcounter[Id,1] filter[.Id = 2] extract[Loc1],ip_hospital feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], hospital, btree_groom_hospital, 1) consume;
+
+
+######## time #############
+#query indoornavigation(ig_hospital, ip_hospital feed addcounter[Id,1] filter[.Id = 2] extract[Loc1],ip_hospital feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], hospital, btree_groom_hospital, 2) consume;
+
+
+#################### Moving Objects #############################
+let Monday_hospital = theRange(theInstant(2011,11,7,6,0,0,0), theInstant(2011,11,7,23,0,0,0), TRUE, FALSE);
+
+let rtree_groom_hospital = hospital feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_hospital = generate_mo1(ig_hospital, hospital, btree_groom_hospital, rtree_groom_hospital, 100.0, Monday_hospital) consume;
+
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_hospital_2 = generate_mo1(ig_hospital, hospital, btree_groom_hospital, rtree_groom_hospital, -30.0, Monday_hospital) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let hospital_extend = hospital feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_hospital = thebuilding(6, "HOSPITAL", hospital, hospital_extend);
+
+delete hospital_extend;
+
+#############entrances:3 paths:906 #################
+query addinfragraph(building_hospital, ig_hospital) consume;
+
+#close database;
+

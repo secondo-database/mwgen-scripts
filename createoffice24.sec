@@ -1,0 +1,179 @@
+#create database office24;
+#open database office24;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+
+restore office24_f0 from 'TM-Data/FloorPlan/office24.groom'; 
+
+let office24_f1 = office24_f0 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let office24_f2 = office24_f1 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office24_f3 = office24_f2 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office24_f4 = office24_f3 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office24_f5 = office24_f4 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office24_f6 = office24_f5 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office24_f7 = office24_f6 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office24_rooms = office24_f7 feed office24_f6 feed concat office24_f5 feed concat office24_f4 feed concat office24_f3 feed concat office24_f2 feed concat office24_f1 feed concat office24_f0 feed concat consume;
+
+delete office24_f7;
+
+delete office24_f6;
+
+delete office24_f5;
+
+delete office24_f4;
+
+delete office24_f3;
+
+delete office24_f2;
+
+delete office24_f1;
+
+delete office24_f0;
+
+restore staircase_o24 from 'TM-Data/FloorPlan/office24.staircase';
+
+let o24_oid = 1;
+
+let office24 = office24_rooms feed staircase_o24 feed concat addcounter[Oid, o24_oid] project[Oid,Name,Type,Room,Door] consume; 
+
+delete staircase_o24;
+
+let office24_d = createdoor3d(office24) consume; 
+
+delete office24_rooms;
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel_o24 = createdoorbox(office24) consume; 
+
+let rtree_box3d_o24 = box3d_rel_o24 feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+# node relation for the graph 
+let node_rel1_o24 = createdoor1(office24, box3d_rel_o24, rtree_box3d_o24, Groom_oid, Groom_tid, Box3d) consume; 
+
+#virtual doors 
+let node_rel2_o24 = createdoor2(office24) consume; 
+
+let node_rel_o24 = node_rel1_o24 feed node_rel2_o24 feed concat consume; 
+
+#btree on groom id 
+let btree_gid_o24 = node_rel_o24 createbtree[Groom_oid1]; 
+
+
+#edge relation for the graph 
+let edge_rel1_o24 = createadjdoor1(office24, node_rel_o24, btree_gid_o24, Door, Door_loc, Groom_oid1, Doorheight) consume; 
+
+
+let rtree_node_o24 = node_rel_o24 feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox];
+
+## the same spatial door, but can belong to two rooms, build the connection between them
+
+let edge_rel2_o24 = createadjdoor2(node_rel_o24, rtree_node_o24) consume;
+
+let edge_rel_o24 = edge_rel1_o24 feed edge_rel2_o24 feed concat consume; 
+
+
+delete rtree_node_o24;
+
+
+delete edge_rel1_o24;
+
+delete edge_rel2_o24;
+
+#indoor navigation graph 
+
+let ig_office24 = createigraph(2, node_rel_o24, edge_rel_o24, "OFFICE24");
+
+#let ip_o24 = generate_ip1(office24, 100, TRUE) consume;
+
+#########for doing experiments #############
+let ip_o24 = generate_ip1(office24, 500, TRUE) consume;
+
+#location on the staircase
+
+#let ip_o24_2 = generate_ip1(office24, 50, FALSE) consume;
+
+######## for doing experiments #########
+let ip_o24_2 = generate_ip1(office24, 500, FALSE) consume;
+
+let btree_groom_o24 = office24 createbtree[Oid]; 
+
+
+query node_rel_o24 count;
+
+query edge_rel_o24 count;
+
+delete node_rel_o24;
+
+delete edge_rel_o24;
+
+###########################################################################
+############################# Query #######################################
+##############################################################################
+
+#query office24;
+#query office24_d; 
+########## length ##########
+#query indoornavigation(ig_office24, ip_o24 feed addcounter[Id,1] filter[.Id = 23] extract[Loc1],ip_o24 feed addcounter[Id,1] filter[.Id = 10] extract[Loc1], office24, btree_groom_o24, 0) consume;
+
+#query indoornavigation(ig_office24, ip_o24_2 feed addcounter[Id,1] filter[.Id = 23] extract[Loc1],ip_o24_2 feed addcounter[Id,1] filter[.Id = 10] extract[Loc1], office24, btree_groom_o24, 0) consume;
+
+######## room #############
+#query indoornavigation(ig_office24, ip_o24 feed addcounter[Id,1] filter[.Id = 2] extract[Loc1],ip_o24 feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], office24, btree_groom_o24, 1) consume;
+
+
+######## time #############
+#query indoornavigation(ig_office24, ip_o24 feed addcounter[Id,1] filter[.Id = 2] extract[Loc1],ip_o24 feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], office24, btree_groom_o24, 2) consume;
+
+
+#################### Moving Objects #############################
+let Monday_o24 = theRange(theInstant(2011,11,7,9,0,0,0), theInstant(2011,11,7,21,0,0,0), TRUE, FALSE);
+
+let rtree_groom_o24 = office24 feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_o24 = generate_mo1(ig_office24, office24, btree_groom_o24, rtree_groom_o24, 100.0, Monday_o24) consume;
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_o24_2 = generate_mo1(ig_office24, office24, btree_groom_o24, rtree_groom_o24, -50.0, Monday_o24) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let office24_extend = office24 feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_office24 = thebuilding(2, "OFFICE24", office24, office24_extend);
+
+delete office24_extend;
+
+######### 1 entrances; 1248 paths:16 minutes ###
+
+query addinfragraph(building_office24, ig_office24) consume;
+
+#close database;
+
+

@@ -1,0 +1,117 @@
+#create database cinema;
+#open database cinema;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+
+restore cinema_0 from 'TM-Data/FloorPlan/cinema.groom'; 
+
+restore cinema_1 from 'TM-Data/FloorPlan/cinema.staircase';
+
+let cinema_oid = 1;
+
+let cinema = cinema_0 feed cinema_1 feed concat addcounter[Oid, cinema_oid] project[Oid,Name,Type,Room,Door] consume; 
+
+let cinema_d = createdoor3d(cinema) consume; 
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel = createdoorbox(cinema) consume; 
+
+let rtree_box3d = box3d_rel feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+# node relation for the graph 
+let node_rel_cinema = createdoor1(cinema, box3d_rel, rtree_box3d, Groom_oid, Groom_tid, Box3d) consume; 
+
+delete box3d_rel;
+
+delete rtree_box3d;
+
+
+#btree on groom id 
+let btree_gid_cinema = node_rel_cinema createbtree[Groom_oid1]; 
+
+#edge relation for the graph 
+let edge_rel1_cinema = createadjdoor1(cinema, node_rel_cinema, btree_gid_cinema, Door, Door_loc, Groom_oid1, Doorheight) consume; 
+
+let rtree_node_cinema = node_rel_cinema feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+delete btree_gid_cinema;
+
+
+## the same door, but can belong to two rooms, build the connection between them 
+
+let edge_rel2_cinema = createadjdoor2(node_rel_cinema, rtree_node_cinema) consume;
+
+delete rtree_node_cinema;
+
+
+let edge_rel_cinema = edge_rel1_cinema feed edge_rel2_cinema feed concat consume; 
+
+#################indoor navigation graph ######################
+
+let ig_cinema = createigraph(3, node_rel_cinema, edge_rel_cinema, "CINEMA"); 
+
+#let ip_cinema = generate_ip1(cinema, 30, TRUE) consume;
+
+### indoor navigation experiments 
+let ip_cinema = generate_ip1(cinema, 500, TRUE) consume;
+
+#location on the staircase 
+
+#let ip_cinema_2 = generate_ip1(cinema, 30, FALSE) consume;
+
+let ip_cinema_2 = generate_ip1(cinema, 500, FALSE) consume;
+
+let btree_groom_cinema = cinema createbtree[Oid];
+
+delete node_rel_cinema;
+
+delete edge_rel_cinema;
+
+delete edge_rel1_cinema;
+
+delete edge_rel2_cinema;
+
+########## length ##########
+#query indoornavigation(ig_cinema, ip_cinema feed addcounter[Id,1] filter[.Id = 1] extract[Loc1],ip_cinema feed addcounter[Id,1] filter[.Id = 5] extract[Loc1], cinema, btree_groom_cinema, 0) consume; 
+
+#query indoornavigation(ig_cinema, ip_cinema_2 feed addcounter[Id,1] filter[.Id = 1] extract[Loc1], ip_cinema_2 feed addcounter[Id,1] filter[.Id = 5] extract[Loc1], cinema, btree_groom_cinema, 0) consume; 
+
+
+######## room #############
+#query indoornavigation(ig_cinema, ip_cinema feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_cinema feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], cinema, btree_groom_cinema, 1) consume; 
+
+
+######## time #############
+#query indoornavigation(ig_cinema, ip_cinema feed addcounter[id,1] filter[.id = 2] extract[loc1],ip_cinema feed addcounter[id,1] filter[.id = 8] extract[loc1], cinema, btree_groom_cinema, 2) consume;
+
+#################### Moving Objects #############################
+let Monday_cinema = theRange(theInstant(2011,11,7,18,0,0,0), theInstant(2011,11,7,23,0,0,0), TRUE, FALSE);
+
+let rtree_groom_cinema = cinema feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_cinema = generate_mo1(ig_cinema, cinema, btree_groom_cinema, rtree_groom_cinema, 50.0,Monday_cinema) consume; 
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_cinema_2 = generate_mo1(ig_cinema, cinema, btree_groom_cinema, rtree_groom_cinema, -20.0,Monday_cinema) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let cinema_extend = cinema feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_cinema = thebuilding(3, "CINEMA", cinema, cinema_extend);
+
+delete cinema_extend;
+
+######## entrances:1   paths:58 ##################
+
+query addinfragraph(building_cinema, ig_cinema) consume;
+
+#close database;
+

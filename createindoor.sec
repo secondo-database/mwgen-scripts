@@ -1,0 +1,104 @@
+
+
+@createuniversity.sec;
+
+@createoffice24.sec;
+
+@createcinema.sec;
+
+@createtrainstation.sec;
+
+@createhotel.sec;
+
+@createhospital.sec;
+
+@createmall.sec;
+
+@createoffice38.sec;
+
+
+## get large 2D area and ignore triangles: convex:  concave: 
+
+let region_elems = region_elem feed extend[Area:area(.Covarea)]
+filter[(.Area > 100.0)] remove[Id, Area] addcounter[Id, 1] project[Id, Covarea] consume; 
+
+let new_region_elems = remove_dirty(region_elems, Id, Covarea) consume;
+
+delete region_elems;
+
+let center_point = center(bbox(newboundary)); 
+
+let center_dist = (maxD(bbox(newboundary),1) - minD(bbox(newboundary),1))/2; 
+
+
+let dist_type = fun(poly:rect)
+ifthenelse(distance(center_point, poly) < center_dist/5, 1, 
+(ifthenelse( distance(center_point, poly) < 2*center_dist/5, 2,3 
+         )
+      )
+);
+
+
+## get the rectangle areas for all buildings ##
+
+let building_region = getrect1(new_region_elems, Id, Covarea, building_para) consume;
+
+let building_region_type = building_region feed extend[Reg_type:dist_type(.GeoData)] consume;
+
+delete building_region;
+
+let btree_type = building_region_type createbtree[Reg_type];
+
+### set the type (building) for each rectangle ###
+let building_sort = building_region_type feed sortby[GeoData] consume;
+
+delete building_region_type;
+
+let rtree_build = building_sort feed addid bulkloadrtree[GeoData];
+
+let buildingplustype = set_building_type(building_sort, rtree_build, space_1) sortby[GeoData] consume;
+
+let btree_building = buildingplustype createbtree[Poly_id];
+
+### build the connection from building entrance to pavement area ##
+
+let building_paths = path_to_building(buildingplustype, new_region_elems, btree_building, space_1) consume;
+
+delete new_region_elems;
+
+delete building_sort;
+
+delete rtree_build;
+
+delete btree_type;
+
+delete center_point;
+
+delete center_dist;
+
+##### create the indoor framework####
+
+let indoorinfra1 = theindoor(1, building_paths, buildingplustype);
+
+########## put the indoor infrastructure into the global space #######
+query putinfra(space_1, indoorinfra1) consume;
+
+
+######### get buildings nearby bus and metro stops ################
+
+let bstops_build = nearstops_building(space_1, "Bus") consume;
+
+let mstops_build = nearstops_building(space_1, "Metro") consume;
+
+###### put the two relations into space ##### 
+
+query putrel(space_1, bstops_build) consume;
+
+query putrel(space_1, mstops_build) consume;
+
+delete bstops_build;
+
+delete mstops_build;
+
+delete building_para;
+

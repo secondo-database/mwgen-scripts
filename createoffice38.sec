@@ -1,0 +1,149 @@
+#create database office38;
+#open database office38;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+
+restore office38_f0 from 'TM-Data/FloorPlan/office38.groom'; 
+
+let office38_f1 = office38_f0 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let office38_f2 = office38_f1 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let office38_f3 = office38_f2 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let office38_rooms = office38_f3 feed office38_f2 feed concat office38_f1 feed concat office38_f0 feed concat consume;
+
+delete office38_f0;
+
+delete office38_f1;
+
+delete office38_f2;
+
+delete office38_f3;
+
+restore staircase_o38 from 'TM-Data/FloorPlan/office38.staircase';
+
+
+let o38_oid = 1;
+
+let office38 = office38_rooms feed staircase_o38 feed concat addcounter[Oid, o38_oid] project[Oid, Name, Type, Room, Door] consume;
+
+delete staircase_o38;
+
+let office38_d = createdoor3d(office38) consume; 
+
+delete office38_rooms;
+
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel_o38 = createdoorbox(office38) consume; 
+
+let rtree_box3d_o38 = box3d_rel_o38 feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+# node relation for the graph 
+let node_rel1_o38 = createdoor1(office38, box3d_rel_o38, rtree_box3d_o38, Groom_oid, Groom_tid, Box3d) consume; 
+
+delete box3d_rel_o38;
+
+delete rtree_box3d_o38;
+
+#virtual doors 
+let node_rel2_o38 = createdoor2(office38) consume; 
+
+let node_rel_o38 = node_rel1_o38 feed node_rel2_o38 feed concat consume; 
+
+#btree on groom id 
+let btree_gid_o38 = node_rel_o38 createbtree[Groom_oid1]; 
+
+
+#edge relation for the graph 
+let edge_rel1_o38 = createadjdoor1(office38, node_rel_o38, btree_gid_o38, Door, Door_loc, Groom_oid1, Doorheight) consume; 
+
+
+let rtree_node_o38 = node_rel_o38 feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+## the same spatial door, but can belong to two rooms, build the connection between them
+
+let edge_rel2_o38 = createadjdoor2(node_rel_o38, rtree_node_o38) consume;
+
+let edge_rel_o38 = edge_rel1_o38 feed edge_rel2_o38 feed concat consume; 
+
+
+delete rtree_node_o38;
+
+delete edge_rel1_o38;
+
+delete edge_rel2_o38;
+
+#indoor navigation graph 
+
+let ig_office38 = createigraph(2, node_rel_o38, edge_rel_o38, "OFFICE38");
+
+#let ip_o38 = generate_ip1(office38, 100, TRUE) consume;
+
+### for doing indoor navigation experiments 
+let ip_o38 = generate_ip1(office38, 500, TRUE) consume;
+
+#location on the staircase
+#let ip_o38_2 = generate_ip1(office38, 50, FALSE) consume;
+
+let ip_o38_2 = generate_ip1(office38, 500, FALSE) consume;
+
+let btree_groom_o38 = office38 createbtree[Oid];
+
+###########################################################################
+############################# Query #######################################
+##############################################################################
+
+#query office38;
+#query office38_d; 
+########## length ##########
+#query indoornavigation(ig_office38, ip_o38 feed addcounter[Id,1] filter[.Id = 23] extract[Loc1], ip_o38 feed addcounter[Id,1] filter[.Id = 10] extract[Loc1], office38, btree_groom_o38, 0) consume;
+
+#query indoornavigation(ig_office38, ip_o38_2 feed addcounter[Id,1] filter[.Id = 23] extract[Loc1], ip_o38_2 feed addcounter[Id,1] filter[.Id = 10] extract[Loc1], office38, btree_groom_o38, 0) consume;
+
+
+######## room #############
+#query indoornavigation(ig_office38, ip_o38 feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_o38 feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], office38, btree_groom_o38, 1) consume;
+
+
+######## time #############
+#query indoornavigation(ig_office38, ip_o38 feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_o38 feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], office38, btree_groom_o38, 2) consume;
+
+
+#################### Moving Objects #############################
+let Monday_o38 = theRange(theInstant(2011,11,7,9,0,0,0), theInstant(2011,11,7,21,0,0,0), TRUE, FALSE);
+
+let rtree_groom_o38 = office38 feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_o38 = generate_mo1(ig_office38, office38, btree_groom_o38, rtree_groom_o38, 100.0, Monday_o38) consume;
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_o38_2 = generate_mo1(ig_office38, office38, btree_groom_o38, rtree_groom_o38, -50.0, Monday_o38) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let office38_extend = office38 feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_office38 = thebuilding(8, "OFFICE38", office38, office38_extend);
+
+delete office38_extend;
+
+######### 1 entrances;  paths: 12 minutes ###
+
+query addinfragraph(building_office38, ig_office38) consume;
+
+
+#close database;
+

@@ -1,0 +1,153 @@
+#create database mall;
+#open database mall;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+
+restore mall_rooms_0 from 'TM-Data/FloorPlan/mall.groom0';
+restore mall_rooms_1 from 'TM-Data/FloorPlan/mall.groom1';
+restore mall_rooms_2 from 'TM-Data/FloorPlan/mall.groom2';
+restore mall_rooms_3 from 'TM-Data/FloorPlan/mall.groom3';
+restore mall_rooms_4 from 'TM-Data/FloorPlan/mall.groom4';
+
+restore mall_staircase from 'TM-Data/FloorPlan/mall.staircase';
+
+let mall_oid = 1;
+
+let malls = mall_rooms_0 feed mall_rooms_1 feed concat mall_rooms_2 feed concat mall_rooms_3 feed concat mall_rooms_4 feed concat mall_staircase feed concat addcounter[Oid, mall_oid] project[Oid, Name, Type, Room, Door] consume;
+
+delete mall_rooms_0;
+delete mall_rooms_1;
+delete mall_rooms_2;
+delete mall_rooms_3;
+delete mall_rooms_4;
+delete mall_staircase;
+
+############ all doors  ##########
+
+let malls_d = createdoor3d(malls) consume;
+
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel_mall = createdoorbox(malls) consume;
+
+let rtree_box3d_mall = box3d_rel_mall feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+
+# node relation for the graph 
+let node_rel1_mall = createdoor1(malls, box3d_rel_mall, rtree_box3d_mall, Groom_oid, Groom_tid, Box3d) consume; 
+
+#virtual doors 
+let node_rel2_mall = createdoor2(malls) consume; 
+
+let node_rel_mall = node_rel1_mall feed node_rel2_mall feed concat consume; 
+
+#btree on groom id 
+let btree_gid_mall = node_rel_mall createbtree[Groom_oid1]; 
+
+delete node_rel1_mall;
+
+delete node_rel2_mall;
+
+delete box3d_rel_mall;
+
+delete rtree_box3d_mall;
+
+######################create indoor graph edges #######################
+
+## edge relation for the graph ##
+let edge_rel1_mall = createadjdoor1(malls, node_rel_mall, btree_gid_mall, Door, Door_loc, Groom_oid1, Doorheight) consume;
+
+let rtree_node_mall = node_rel_mall feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox];
+
+## the same spatial door, but can belong to two rooms, build the connection between them
+
+let edge_rel2_mall = createadjdoor2(node_rel_mall, rtree_node_mall) consume;
+
+let edge_rel_mall = edge_rel1_mall feed edge_rel2_mall feed concat consume; 
+
+delete edge_rel1_mall;
+
+delete edge_rel2_mall;
+
+delete btree_gid_mall;
+
+delete rtree_node_mall;
+
+
+##########################################
+#########indoor navigation graph #########
+##########################################
+
+let ig_mall = createigraph(7, node_rel_mall, edge_rel_mall, "SHOPPINGMALL");
+
+delete node_rel_mall;
+
+delete edge_rel_mall;
+
+
+#let ip_mall = generate_ip1(malls, 100, TRUE) consume;
+
+#########for doing experiments #####
+let ip_mall = generate_ip1(malls, 500, TRUE) consume;
+
+#location on the staircase
+#let ip_mall_2 = generate_ip1(malls, 20, FALSE) consume;
+
+######### for doing experiments ######
+let ip_mall_2 = generate_ip1(malls, 500, FALSE) consume;
+
+let btree_groom_mall = malls createbtree[Oid];
+
+###########################################################################
+############################# Query #######################################
+###########################################################################
+
+#query malls;
+
+#query malls_d;
+
+########## length ##########
+#query indoornavigation(ig_mall, ip_mall feed addcounter[Id,1] filter[.Id = 23] extract[Loc1], ip_mall feed addcounter[Id,1] filter[.Id = 3] extract[Loc1], malls, btree_groom_mall, 0) consume;
+
+#query indoornavigation(ig_mall, ip_mall_2 feed addcounter[Id,1] filter[.Id = 23] extract[Loc1], ip_mall_2 feed addcounter[Id,1] filter[.Id = 3] extract[Loc1], malls, btree_groom_mall, 0) consume;
+
+
+######## room #############
+#query indoornavigation(ig_mall, ip_mall feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_mall feed addcounter[Id,1] filter[.Id = 5] extract[Loc1], malls, btree_groom_mall, 1) consume;
+
+
+######## time #############
+#query indoornavigation(ig_mall, ip_mall feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_mall feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], malls, btree_groom_mall, 2) consume;
+
+
+#################### Moving Objects #############################
+let Monday_mall = theRange(theInstant(2011,11,7,6,0,0,0), theInstant(2011,11,7,23,0,0,0), TRUE, FALSE);
+
+let rtree_groom_mall = malls feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_mall = generate_mo1(ig_mall, malls, btree_groom_mall, rtree_groom_mall, 100.0, Monday_mall) consume;
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_mall_2 = generate_mo1(ig_mall, malls, btree_groom_mall, rtree_groom_mall, -30.0, Monday_mall) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let mall_extend = malls feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_mall = thebuilding(7, "SHOPPINGMALL", malls, mall_extend);
+
+delete mall_extend;
+
+######entrances: 2; path: 2596 ###
+
+query addinfragraph(building_mall, ig_mall) consume;
+
+#close database;
+

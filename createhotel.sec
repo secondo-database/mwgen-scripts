@@ -1,0 +1,173 @@
+#create database hotel;
+#open database hotel;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+
+restore hotel_f0 from 'TM-Data/FloorPlan/hotel.groom';
+
+restore hotel_staircase_0 from 'TM-Data/FloorPlan/hotel.staircase';
+
+let hotel_f1 = hotel_f0 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let hotel_f2 = hotel_f1 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let hotel_f3 = hotel_f2 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let hotel_f4 = hotel_f3 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+let hotel_rooms = hotel_f0 feed hotel_f1 feed concat hotel_f2 feed concat hotel_f3 feed concat hotel_f4 feed concat consume;
+
+delete hotel_f0;
+
+delete hotel_f1;
+
+delete hotel_f2;
+
+delete hotel_f3;
+
+delete hotel_f4;
+
+
+let hotel_oid = 1;
+
+let hotel = hotel_rooms feed hotel_staircase_0 feed concat addcounter[Oid, hotel_oid] project[Oid,Name,Type,Room,Door] consume;
+
+delete hotel_rooms;
+
+delete hotel_staircase_0;
+
+############ all doors  ##########
+
+let hotel_d = createdoor3d(hotel) consume; 
+
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel_hotel = createdoorbox(hotel) consume; 
+
+let rtree_box3d_hotel = box3d_rel_hotel feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+# node relation for the graph 
+let node_rel1_hotel = createdoor1(hotel, box3d_rel_hotel, rtree_box3d_hotel, Groom_oid, Groom_tid, Box3d) consume; 
+
+#virtual doors 
+let node_rel2_hotel = createdoor2(hotel) consume; 
+
+let node_rel_hotel = node_rel1_hotel feed node_rel2_hotel feed concat consume; 
+
+#btree on groom id 
+let btree_gid_hotel = node_rel_hotel createbtree[Groom_oid1];
+
+delete node_rel1_hotel;
+
+delete node_rel2_hotel;
+
+delete box3d_rel_hotel;
+
+delete rtree_box3d_hotel;
+
+
+######################create indoor graph edges #######################
+
+## edge relation for the graph ##
+let edge_rel1_hotel = createadjdoor1(hotel, node_rel_hotel, btree_gid_hotel, Door, Door_loc, Groom_oid1, Doorheight) consume;
+
+
+let rtree_node_hotel = node_rel_hotel feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+## the same spatial door, but can belong to two rooms, build the connection between them
+
+let edge_rel2_hotel = createadjdoor2(node_rel_hotel, rtree_node_hotel) consume;
+
+let edge_rel_hotel = edge_rel1_hotel feed edge_rel2_hotel feed concat consume; 
+
+delete edge_rel1_hotel;
+
+delete edge_rel2_hotel;
+
+delete btree_gid_hotel;
+
+delete rtree_node_hotel;
+
+##########################################
+#########indoor navigation graph #########
+##########################################
+
+
+let ig_hotel = createigraph(5, node_rel_hotel, edge_rel_hotel, "HOTEL");
+
+delete node_rel_hotel;
+
+delete edge_rel_hotel;
+
+
+#let ip_hotel = generate_ip1(hotel, 100, TRUE) consume;
+
+######### for doing experiments ###########
+let ip_hotel = generate_ip1(hotel, 500, TRUE) consume;
+
+#location on the staircase
+#let ip_hotel_2 = generate_ip1(hotel, 20, FALSE) consume;
+
+#######for doing experiments ####
+let ip_hotel_2 = generate_ip1(hotel, 500, FALSE) consume;
+
+let btree_groom_hotel = hotel createbtree[Oid];
+
+###########################################################################
+############################# Query #######################################
+##############################################################################
+
+#query hotel;
+#query hotel_d; 
+########## length ##########
+#query indoornavigation(ig_hotel, ip_hotel feed addcounter[Id,1] filter[.Id = 1] extract[Loc1],ip_hotel feed addcounter[Id,1] filter[.Id = 69] extract[Loc1], hotel, btree_groom_hotel, 0) consume;
+
+
+#query indoornavigation(ig_hotel, ip_hotel_2 feed addcounter[Id,1] filter[.Id = 1] extract[Loc1],ip_hotel_2 feed addcounter[Id,1] filter[.Id = 69] extract[Loc1], hotel, btree_groom_hotel, 0) consume;
+
+######## room #############
+#query indoornavigation(ig_hotel, ip_hotel feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_hotel feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], hotel, btree_groom_hotel, 1) consume;
+
+
+######## time #############
+#query indoornavigation(ig_hotel, ip_hotel feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], ip_hotel feed addcounter[Id,1] filter[.Id = 8] extract[Loc1], hotel, btree_groom_hotel, 2) consume;
+
+
+#################### Moving Objects #############################
+let Monday_hotel = theRange(theInstant(2011,11,7,6,0,0,0), theInstant(2011,11,7,23,0,0,0), TRUE, FALSE);
+
+let rtree_groom_hotel = hotel feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_hotel = generate_mo1(ig_hotel, hotel, btree_groom_hotel, rtree_groom_hotel, 100.0, Monday_hotel) consume;
+
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_hotel_2 = generate_mo1(ig_hotel, hotel, btree_groom_hotel, rtree_groom_hotel, -30.0, Monday_hotel) consume;
+
+
+###############################################
+############ create building  #################
+###############################################
+
+let hotels_extend = hotel feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_hotel = thebuilding(5, "HOTEL", hotel, hotels_extend);
+
+delete hotels_extend;
+
+##########entrances 3; paths:3810 #############
+query addinfragraph(building_hotel, ig_hotel) consume;
+
+#close database;
+
+

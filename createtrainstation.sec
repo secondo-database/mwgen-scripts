@@ -1,0 +1,113 @@
+#create database Trainstation;
+#open database Trainstation;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+
+restore trainstation_0 from 'TM-Data/FloorPlan/trainstation.groom';
+
+restore trainstation_1 from 'TM-Data/FloorPlan/trainstation.staircase';
+
+let ts_oid = 1;
+
+let trainstation = trainstation_0 feed trainstation_1 feed concat addcounter[Oid,ts_oid] project[Oid,Name,Type,Room,Door] consume; 
+
+let trainstation_d = createdoor3d(trainstation) consume; 
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel = createdoorbox(trainstation) consume;
+
+let rtree_box3d_ts = box3d_rel feed addid sortby[Box3d] bulkloadrtree[Box3d];
+
+# node relation for the graph 
+let node_rel_ts = createdoor1(trainstation, box3d_rel, rtree_box3d_ts, Groom_oid, Groom_tid, Box3d) consume;
+
+delete box3d_rel;
+
+delete rtree_box3d_ts;
+
+#btree on groom id 
+let btree_gid = node_rel_ts createbtree[Groom_oid1]; 
+
+
+#edge relation for the graph without corridor (its complex, processed differently)
+let edge_rel1_ts = createadjdoor1(trainstation, node_rel_ts, btree_gid, Door, Door_loc, Groom_oid1, Doorheight) consume; 
+
+delete btree_gid;
+
+let rtree_node_ts = node_rel_ts feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+
+## the same door, but can belong to two rooms, build the connection between them 
+
+let edge_rel2_ts = createadjdoor2(node_rel_ts, rtree_node_ts) consume;
+
+delete rtree_node_ts;
+
+let edge_rel_ts = edge_rel1_ts feed edge_rel2_ts feed concat consume;
+
+delete edge_rel1_ts;
+
+delete edge_rel2_ts;
+
+#################indoor navigation graph ######################
+
+let ig_ts = createigraph(4, node_rel_ts, edge_rel_ts, "TRAINSTATION");
+
+delete node_rel_ts;
+
+delete edge_rel_ts;
+
+
+#let ip_ts = generate_ip1(trainstation, 50, TRUE) consume;
+
+let ip_ts = generate_ip1(trainstation, 500, TRUE) consume;
+
+#locaton on the staircase 
+#let ip_ts_2 = generate_ip1(trainstation, 20, FALSE) consume;
+
+let ip_ts_2 = generate_ip1(trainstation, 500, FALSE) consume;
+
+let btree_groom_ts = trainstation createbtree[Oid];
+
+########## length ##########
+#query indoornavigation(ig_ts, ip_ts feed addcounter[Id,1] filter[.Id = 1] extract[Loc1], ip_ts feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], trainstation, btree_groom_ts, 0) consume; 
+
+#query indoornavigation(ig_ts, ip_ts_2 feed addcounter[Id,1] filter[.Id = 1] extract[Loc1], ip_ts_2 feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], trainstation, btree_groom_ts, 0) consume; 
+
+######## room #############
+#query indoornavigation(ig_ts, ip_ts feed addcounter[Id,1] filter[.Id = 10] extract[Loc1], ip_ts feed addcounter[Id,1] filter[.Id = 20] extract[Loc1], trainstation, btree_groom_ts, 1) consume; 
+
+
+######## time #############
+#query indoornavigation(ig_ts, ip_ts feed addcounter[Id,1] filter[.Id = 10] extract[Loc1],ip_ts feed addcounter[Id,1] filter[.Id = 20] extract[Loc1], trainstation, btree_groom_ts, 2) consume;
+
+
+let Monday_ts = theRange(theInstant(2011,11,7,7,0,0,0), theInstant(2011,11,7,22,0,0,0), TRUE, FALSE);
+
+let rtree_groom_ts = trainstation feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+#let mo_ts = generate_mo1(ig_ts, trainstation, btree_groom_ts, rtree_groom_ts, 150.0, Monday_ts) consume;
+
+######## indoor moving objects from rooms to building entrances ###
+#let mo_ts_2 = generate_mo1(ig_ts, trainstation, btree_groom_ts, rtree_groom_ts, -30.0, Monday_ts) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let trainstation_extend = trainstation feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_ts = thebuilding(4, "TRAINSTATION", trainstation, trainstation_extend);
+
+delete trainstation_extend;
+
+###### entrances:3  paths:186 #########
+query addinfragraph(building_ts, ig_ts) consume;
+
+#close database;
+

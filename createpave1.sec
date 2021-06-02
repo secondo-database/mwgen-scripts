@@ -1,0 +1,137 @@
+
+######################################################################
+######################################################################
+# create pavement regions and streets from  data.
+######################################################################
+######################################################################
+
+#######################################
+###1 add road network into the space###
+#######################################
+
+let space_1 = [const space value ( 1 )];
+
+query putinfra(space_1, rn) consume;
+
+query getinfra(space_1, "LINE") count;
+
+query getinfra(space_1, "FREESPACE") count;
+
+query putrel(space_1, streets_speed) consume;
+
+######################################
+### add road graph into the space###
+######################################
+let rg_nodes = get_rg_nodes(rn) consume;
+
+let rtree_nodes = rg_nodes feed addid bulkloadrtree[Jun_p];
+
+let rg_edges1 = get_rg_edges1(rg_nodes, rtree_nodes) consume;
+
+let rg_edges2 = get_rg_edges2(rn, rg_nodes) consume;
+
+let rg =  creatergraph(1, rg_nodes, rg_edges1, rg_edges2);
+
+query putinfra(space_1, rg) consume;
+
+delete rg_nodes;
+
+delete rg_edges1;
+
+delete rg_edges2;
+
+
+################################
+### create pavement areas    ###
+################################
+
+let allregions_out = segment2region(r, Curve,roadwidth) project[Oid, Outborder] consume;
+
+let regions_outborder = allregions_out feed aggregateB[Outborder; fun(r1:region,r2:region) r1 union r2; [const region value()]];
+
+
+let rtreeroad = routes(rn) feed projectextend[;TID:tupleid(.), MBR:bbox(.Curve)] sortby[MBR asc] bulkloadrtree[MBR];
+
+let newboundary = modifyboundary(bbox(rtreeroad),roadwidth);
+
+delete rtreeroad;
+
+let partition_regions =  newboundary minus regions_outborder;
+
+#decomposed subregions by road network
+let region_elem = decomposeregion(partition_regions) consume;
+
+delete partition_regions;
+
+let allregions_pave = segment2region(r, Curve, roadwidth) extend[Pave1: .Paveroad1 minus .Road1] extend[Pave2: .Paveroad2 minus .Road2] project[Oid, Pave1, Pave2] consume;
+
+
+let allregions_in = segment2region(r, Curve,roadwidth) project[Oid, Inborder] consume;
+
+#pavement beside road
+let pave_regions1 = paveregion(rn, allregions_in, Inborder, allregions_pave, Pave1, Pave2, roadwidth) consume;
+
+
+#zebra crossing at junction
+let pave_regions2 = junregion(rn, pave_regions1, Pavement1, Pavement2, roadwidth, allregions_in, Inborder) project[Rid, Crossreg] consume;
+
+
+##################################
+########      query      #########
+##################################
+#1 road line, use blue color in Javagui
+#query r;
+
+#2 pavement beside road, use gray color in Javagui
+#query pave_regions1;
+
+#3 zebra crossings at junctions, use yellow color in Javagui
+#query pave_regions2;
+
+#4 regions partitioned by roadnetwork, use red color in Javagui
+#query region_elem;
+
+delete allregions_in;
+
+delete allregions_out;
+
+delete allregions_pave;
+
+delete regions_outborder;
+
+
+#####################################################################
+########## create region for pavement, one big region  ##############
+########## create dual grapn on triangles and visibility graph ######
+#####################################################################
+
+let subpaves1 = getpavenode1(rn,pave_regions1,Rid,Pavement1,Pavement2) consume;
+
+## used in creating bus network 
+let subpaves2 = getpavenode2(subpaves1 count, pave_regions2, Rid, Crossreg) consume;
+
+let graph_node = subpaves1 feed subpaves2 feed concat consume;
+
+delete subpaves1;
+
+#subpaves2 will be used later 
+## Berlin 10 minutes; Houston 25 minutes 
+let node_reg = graph_node feed aggregateB[Pavement; fun(r1:region,r2:region) r1 union r2; [const region value()]];
+
+#############################################################
+##### create dual graph and visibility graph on pavements ###
+#############################################################
+
+
+## unique object identifier for each infrastructure object 
+
+let pave_oid = routes(rn) count + 1;
+
+### for each triangle, get which road it relates to ###
+
+let graph_node1 = graph_node feed extend[BBox:bbox(.Pavement)] sortby[BBox] remove[BBox] consume;
+
+delete graph_node;
+
+
+

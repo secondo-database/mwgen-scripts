@@ -1,0 +1,134 @@
+
+delete cell_no_2;
+
+delete cellbox_list_2;
+
+delete temp_r;
+
+
+let rtree_cell = dg_cell_node feed addid bulkloadrtree[Pavement];
+
+let dg_cell_edge = smcdgte(dg_cell_node, rtree_cell) consume;
+
+########## create dual graph on these cells ####
+
+### 1 is used in pavement area for creating a dual graph on triangles  ##
+
+let dg_cell = createdualgraph(2, dg_cell_node, dg_cell_edge);
+
+delete dg_cell_node;
+
+delete dg_cell_edge;
+
+## the large overall polygon is also considered as an infrastructure object ##
+
+let ubahn_oid = routes(rn) count + dg_node count + bus_routes count + genmo_bus count + 2;
+
+### with the dual graph, create several underground railway lines ###
+
+let mroutes = createmetroroute(dg_cell, metro_para) addcounter[Oid, ubahn_oid] consume;
+
+delete metro_para;
+
+let mstops = createmetrostop(mroutes) consume;
+
+#### create moving metros ####
+let Metro_Time = theRange(theInstant(2011,11,7,6,0,0,0), theInstant(2011,11,7,22,0,0,0), TRUE, TRUE);
+
+########create metros on Sunday and Monday (the same schedule)  ###
+
+let mo_metro_oid = routes(rn) count + dg_node count + bus_routes count + genmo_bus count + mroutes count + 2;
+
+let genmo_metro_1 = createmetromo(mroutes, Metro_Time) addcounter[Oid, mo_metro_oid] consume; 
+
+let btree_metro1 = genmo_metro_1 createbtree[Mr_id];
+
+let genmo_metro = genmo_metro_1 feed project[Mtrip1, Mtrip2, Mr_oid, Oid] consume;
+
+let mn = themetronetwork(1, mstops, mroutes, genmo_metro);
+
+
+###################################
+########## metro graph ############
+###################################
+
+let msneighbors1 = ms_neighbors1(mstops) consume;
+
+
+######### convert relation schema for processing ###
+let genmo_metro_2 = genmo_metro_1 feed extend[Id:.Oid] extend[Line:.Mr_id]
+extend[Trip:.Mtrip2] extend[Schedule_id:.Oid] project[Id,Line,Up,Trip,Schedule_id]
+consume;
+
+let mstops_2 = mstops feed extend[LineId:.Mr_id] extend[Loc:.Stop_geodata]
+extend[Stop_id:getstopid(.Ms_stop)] project[LineId, Loc, Stop_id] consume;
+
+let btree_metro2 = genmo_metro_2 createbtree[Line];
+
+
+let metro_time_table = create_time_table2(mstops_2, genmo_metro_2, btree_metro2) consume;
+
+let btree_time_table = metro_time_table createbtree[Line_id];
+
+let msneighbors2 = ms_neighbors2(mn, metro_time_table, btree_time_table,genmo_metro_1,btree_metro1) consume;
+
+let mg = createmgraph(1, mstops, msneighbors1, msneighbors2);
+
+delete genmo_metro_2;
+
+delete mstops_2;
+
+delete metro_time_table;
+
+query msneighbors1 count;
+
+query msneighbors2 count;
+
+
+delete msneighbors1;
+
+delete msneighbors2;
+
+delete btree_time_table;
+
+delete genmo_metro_1;
+
+delete btree_metro1;
+
+delete btree_metro2;
+
+
+
+########## add graph to infra  #####
+query addinfragraph(mn, mg) consume;
+
+################### add metro network infrastructure into space #####
+
+query putinfra(space_1, mn) consume;
+
+query getinfra(space_1, "METROSTOP") count;
+
+query getinfra(space_1, "METROROUTE") count;
+
+query getinfra(space_1, "METRO") count;
+
+
+## map metro stops to the pavement  do not order the result##
+## it is the same order as the input mstops ###
+
+### map metro stop to pavement area ###
+
+let msneighbor = mapmstopave(mstops, dg_node_sort,rtree_dg) sortby[Loc2] consume;
+
+query putrel(space_1, msneighbor) consume;
+
+delete msneighbor;
+
+########## query processing on the metro graph ######
+
+#query mnnavigation(mstops feed addcounter[Id,1] filter[.Id = 33] extract[Ms_stop], mstops feed addcounter[Id,1] filter[.Id = 34] extract[Ms_stop], mn, theInstant(2011,11,6,16,0,0,0)) count; 
+
+#query mroutes feed extend[Geo:brgeodata(.Mroute)] consume;
+
+#query mstops feed extend[Id:ref_id(.Ms_stop)] extend[Stop_id:getstopid(.Ms_stop)] extend[Up:up_down(.Ms_stop)] consume;
+

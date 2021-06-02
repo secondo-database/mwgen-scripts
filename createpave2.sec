@@ -1,0 +1,89 @@
+
+let rtree_pave1 = graph_node1 feed addid bulkloadrtree[Pavement];
+
+### Berlin: 3 minutes  ; Houston: 12 minutes ###
+let dg_node_rid =  setpave_rid(dg_node, graph_node1, rtree_pave1)  consume;
+
+query putrel(space_1, dg_node_rid) consume;
+
+delete rtree_pave1;
+
+
+let tri_reg_new_sort = tri_reg_new feed addcounter[Oid, pave_oid] extend[Zvalue:zval(.Centroid)] sortby[Zvalue asc] remove[Zvalue] consume;
+
+########create a dual graph on triangles###############
+
+let regnodes = regvertex(node_reg) consume;
+
+############ Berlin:1.5 minutes ### Houston: 7 minutes #####
+let dg_edge =  get_dg_edge(tri_reg_new_sort, regnodes) consume;
+
+delete regnodes;
+
+let dg = createdualgraph(1, dg_node, dg_edge);
+
+
+###########create visibility graph#####################
+
+let vgnodes = regvertex(node_reg) addcounter[Oid,1] extend[Loc:.Vertex] project[Oid, Loc] consume;
+
+let vertex_tri = decomposetri(tri_reg_new_sort) consume;
+
+let btr_vid = vertex_tri createbtree[Vid];
+
+
+#### no. Berlin: 1409621, Houston: 4,120,351 #### Houston: 20 minutes 
+
+let vgedges = getvgedge(dg, vgnodes, tri_reg_new, vertex_tri, btr_vid) consume;
+
+
+let vg = createvgraph(1, vgnodes, vgedges);
+
+######### for doing experiments ##########
+
+let query_loc1 = generate_wp1(dg_node, 1000) consume;
+
+#### map points on pavements to gpoints ###
+###### used in genmo3.sec #### 
+let btree_dg_rid = dg_node_rid createbtree[Oid];
+
+# let pave_gp = pave_loc_togp(query_loc1, dg_node_rid, btree_dg_rid, rn) consume; 
+
+
+delete tri_reg_new_sort;
+
+delete vertex_tri;
+
+delete btr_vid;
+
+delete node_reg;
+
+delete vgnodes;
+
+delete vgedges;
+
+delete dg_edge;
+
+
+##############################################################
+############## pavement infrastructure #######################
+##############################################################
+
+let pn = thepavement(1, dg_node);
+
+#######  add  dual graph and visual graph to pavement ####
+query addinfragraph(pn, dg) consume;
+
+query addinfragraph(pn, vg) consume;
+
+################### add pavement infrastructure into space #####
+#the overall polygon is also considered as an infrastructure object##
+query putinfra(space_1, pn) consume;
+
+query getinfra(space_1, "REGION") count;
+
+######## walk planning ###
+# query walk_sp(pn, query_loc1 feed addcounter[Id,1] filter[.Id = 332] remove[Id] consume,query_loc1 feed addcounter[Id,1] filter[.Id = 226] remove[Id] consume, tri_reg_new)
+
+
+close database;

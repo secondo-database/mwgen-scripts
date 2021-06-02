@@ -1,0 +1,189 @@
+########################################################
+########## create generic moving objects  ##############
+########################################################
+open database houstongenmo;
+
+let TwoDays = theRange(theInstant(2011,11,6,8,0,0,0), theInstant(2011,11,7,22,0,0,0), TRUE, FALSE);
+
+let genmo_scale = 0.05;
+
+#let genmo_scale = 2.0;
+
+#let genmo_scale = 5.0;
+
+#let genmo_scale = 15.0;
+
+#let genmo_scale = 25.0;
+
+#let genmo_scale = 50.0;
+
+#let genmo_scale = 125.0;
+
+let divide = 3.0;
+
+######################
+## Car/Taxi Walk  ####
+## Type : 7  11 ######
+######################
+
+let genmo_carwalk_no = 2000.0 * genmo_scale;
+
+let genmo_type7 = generate_genmo(space_1, TwoDays, genmo_carwalk_no, 7) consume;
+
+delete genmo_carwalk_no;
+
+let genmo_taxiwalk_no = 200.0 * genmo_scale;
+
+let genmo_type11 = generate_genmo(space_1, TwoDays, genmo_taxiwalk_no, 11) consume;
+
+delete genmo_taxiwalk_no;
+
+
+####################
+## Indoor Walk  ####
+## Type: 9 #########
+####################
+
+let genmo_walkindoor_no = 400.0 * genmo_scale;
+
+let genmo_type9 = generate_genmo(space_1, TwoDays, genmo_walkindoor_no, 9) consume;
+
+delete genmo_walkindoor_no;
+
+##############################
+## Indoor Walk Car/Taxi  ####
+## Type: 13,16      ##########
+##############################
+
+let genmo_walkindoorcar_no = 2000.0 * genmo_scale;
+
+let genmo_type13 = generate_genmo(space_1, TwoDays, genmo_walkindoorcar_no/divide, 13) consume;
+
+query generate_genmo(space_1, TwoDays, genmo_walkindoorcar_no/divide, 13) genmo_type13 insert count;
+
+query generate_genmo(space_1, TwoDays, genmo_walkindoorcar_no/divide, 13) genmo_type13 insert count;
+
+delete genmo_walkindoorcar_no;
+
+let genmo_walkindoortaxi_no = 200.0 * genmo_scale;
+
+let genmo_type16 = generate_genmo(space_1, TwoDays, genmo_walkindoortaxi_no, 16) consume;
+
+delete genmo_walkindoortaxi_no;
+
+
+######################
+## Metro Walk  #######
+## Type : 10 #########
+######################
+
+
+let genmo_walkmetro_no = 1000.0 * genmo_scale;
+
+let genmo_type10 = generate_genmo(space_1, TwoDays, genmo_walkmetro_no/divide, 10) consume;
+
+query generate_genmo(space_1, TwoDays, genmo_walkmetro_no/divide, 10) count;
+
+query generate_genmo(space_1, TwoDays, genmo_walkmetro_no/divide, 10) count;
+
+delete genmo_walkmetro_no;
+
+
+###########################
+## Indoor Walk Metro ######
+## Type: 15  ##############
+###########################
+
+let genmo_walkindoormetro_no = 1000.0 * genmo_scale;
+
+let genmo_type15 = generate_genmo(space_1, TwoDays, genmo_walkindoormetro_no/divide, 15) consume;
+
+query generate_genmo(space_1, TwoDays, genmo_walkindoormetro_no/divide, 15) genmo_type15 insert count;
+
+query generate_genmo(space_1, TwoDays, genmo_walkindoormetro_no/divide, 15) genmo_type15 insert count;
+
+delete genmo_walkindoormetro_no;
+
+##################
+## Bus Walk  #####
+## Type : 8 ######
+##################
+
+
+let genmo_walkbus_no = 1000.0 * genmo_scale;
+
+##### avoid large file for NativeFlobFile ### 
+### use this method, the file NativeFlobFile grows very big for large dataset ###
+
+let genmo_type8 = generate_genmo(space_1, TwoDays, genmo_walkbus_no/divide, 8) consume;
+
+query generate_genmo(space_1, TwoDays, genmo_walkbus_no/divide, 8) genmo_type8 insert count;
+
+query generate_genmo(space_1, TwoDays, genmo_walkbus_no/divide, 8) genmo_type8 insert count;
+
+delete genmo_walkbus_no;
+
+##########################
+## Indoor Walk Bus  #####
+## Type: 14  #############
+##########################
+
+
+let genmo_walkindoorbus_no = 1000.0 * genmo_scale;
+
+let divide2 = 5.0;
+
+# NO. 1
+let genmo_type14 = generate_genmo(space_1, TwoDays, genmo_walkindoorbus_no/divide2, 14) consume;
+
+# NO. 2
+query generate_genmo(space_1, TwoDays, genmo_walkindoorbus_no/divide2, 14) genmo_type14 insert count;
+
+# NO. 3
+query generate_genmo(space_1, TwoDays, genmo_walkindoorbus_no/divide2, 14) genmo_type14 insert count;
+
+# NO. 4
+query generate_genmo(space_1, TwoDays, genmo_walkindoorbus_no/divide2, 14) genmo_type14 insert count;
+
+# NO. 5
+query generate_genmo(space_1, TwoDays, genmo_walkindoorbus_no/divide2, 14) genmo_type14 insert count;
+
+delete genmo_walkindoorbus_no;
+
+##########################
+###### put all together ##
+##########################
+
+let genmo_oid = 1;
+
+let genmo_all = genmo_type7 feed project[Trip1,Trip2] genmo_type11 feed project[Trip1,Trip2] concat genmo_type8 feed project[Trip1,Trip2] concat genmo_type9 feed project[Trip1,Trip2] concat genmo_type13 feed project[Trip1,Trip2] concat genmo_type16 feed project[Trip1,Trip2] concat genmo_type14 feed project[Trip1,Trip2] concat genmo_type10 feed project[Trip1,Trip2] concat genmo_type15 feed project[Trip1,Trip2] concat addcounter[Oid, genmo_oid] consume; 
+
+#let genmo_all = genmo_type13 feed project[Trip1,Trip2] genmo_type14 feed project[Trip1,Trip2] concat genmo_type15 feed project[Trip1,Trip2] concat addcounter[Oid, genmo_oid] consume;
+
+let genmo_all = genmo_type13 feed project[Trip1] genmo_type14 feed project[Trip1] concat genmo_type15 feed project[Trip1] concat addcounter[Oid, genmo_oid] consume;
+
+
+delete genmo_oid; 
+
+delete divide;
+
+delete genmo_scale;
+
+delete divide2;
+
+delete genmo_type7;
+delete genmo_type11;
+delete genmo_type8;
+delete genmo_type9;
+delete genmo_type16;
+delete genmo_type10;
+
+
+delete genmo_type13;
+delete genmo_type14;
+delete genmo_type15;
+
+query genmo_all count;
+
+close database;
+

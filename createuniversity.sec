@@ -1,0 +1,206 @@
+#create database university;
+#open database university;
+
+#open database berlingenmo;
+
+#open database houstongenmo;
+ 
+########## for the first floor #################
+restore university_f1 from 'TM-Data/FloorPlan/university.groom';
+
+############# translate the office rooms in vertical ########################
+
+let university_f2 = university_f1 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+ let university_f3 = university_f2 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+ let university_f4 = university_f3 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+let university_f5 = university_f4 feed extend[NewRoom:.Room] remove[Room] extend[Room:add_height_groom(.NewRoom, 3.0)] remove[NewRoom] 
+project[Name,Type,Room,Door] consume;
+
+
+############################## elevator ############################################ 
+restore elevator1 from 'TM-Data/FloorPlan/university.lift';
+
+################ staircase for the first part and translate it #################
+restore staircase1 from 'TM-Data/FloorPlan/university.staircase';
+
+let staircase2 = staircase1 feed extend[NewRoom:.Room] remove[Room] 
+extend[Room: .NewRoom translate_groom [20.0, 0.0]] remove[NewRoom] consume feed 
+extend[NewDoor:.Door translate [20.0, 0.0]] remove[Door] 
+extend[Door: .NewDoor translate [0.0, 0.0]] remove[NewDoor] 
+project[Name,Type,Room,Door] consume; 
+
+let staircase3 = staircase2 feed extend[NewRoom:.Room] remove[Room] 
+extend[Room: .NewRoom translate_groom [20.0, 0.0]] remove[NewRoom] consume feed 
+extend[NewDoor:.Door translate [20.0, 0.0]] remove[Door] 
+extend[Door: .NewDoor translate [0.0, 0.0]] remove[NewDoor] 
+project[Name,Type,Room,Door] consume; 
+
+let staircase4 = staircase3 feed extend[NewRoom:.Room] remove[Room] 
+extend[Room: .NewRoom translate_groom [20.0, 0.0]] remove[NewRoom] consume feed 
+extend[NewDoor:.Door translate [20.0, 0.0]] remove[Door] 
+extend[Door: .NewDoor translate [0.0, 0.0]] remove[NewDoor] 
+project[Name,Type,Room,Door] consume; 
+
+#######################################################
+
+let university_room_temp = university_f5 feed university_f4 feed concat university_f3 feed concat university_f2 feed concat university_f1 feed concat consume;
+
+delete university_f5;
+
+delete university_f4;
+
+delete university_f3;
+
+delete university_f2;
+
+delete university_f1; 
+
+let staircase_temp = staircase1 feed staircase2 feed concat staircase3 feed concat 
+staircase4 feed concat consume; 
+
+delete staircase1;
+
+delete staircase2;
+
+delete staircase3;
+
+delete staircase4;
+
+################# grooms and doors ######################
+
+let uni_oid = 1;
+
+
+let fernuni = university_room_temp feed staircase_temp feed concat elevator1 feed concat addcounter[Oid, uni_oid] project[Oid,Name,Type,Room,Door] consume; 
+
+delete university_room_temp;
+
+delete staircase_temp;
+
+delete elevator1;
+
+let fernuni_d = createdoor3d(fernuni) consume;
+
+######################################################
+################# create door relation ###############
+######################################################
+
+let box3d_rel_uni = createdoorbox(fernuni) consume; 
+
+let rtree_box3d_uni = box3d_rel_uni feed addid sortby[Box3d] bulkloadrtree[Box3d]; 
+
+# node relation for the graph 
+let node_rel1_uni = createdoor1(fernuni, box3d_rel_uni, rtree_box3d_uni, Groom_oid, Groom_tid, Box3d) consume; 
+
+#virtual doors
+let node_rel2_uni = createdoor2(fernuni) consume; 
+
+let node_rel_uni = node_rel1_uni feed node_rel2_uni feed concat consume;
+
+delete rtree_box3d_uni;
+
+delete box3d_rel_uni;
+
+delete node_rel1_uni;
+
+delete node_rel2_uni;
+
+#btree on groom id 
+let btree_gid_uni = node_rel_uni createbtree[Groom_oid1]; 
+
+#edge relation for the graph 
+let edge_rel1_uni = createadjdoor1(fernuni, node_rel_uni, btree_gid_uni, Door, Door_loc, Groom_oid1, Doorheight) consume; 
+
+delete btree_gid_uni;
+
+let rtree_node_uni = node_rel_uni feed addid extend[BBox:bbox3d(.Door_loc3d)] sortby[BBox]  bulkloadrtree[BBox]; 
+
+## the same door, but can belong to two rooms, build the connection between them 
+
+let edge_rel2_uni = createadjdoor2(node_rel_uni, rtree_node_uni) consume;
+
+delete rtree_node_uni; 
+
+let edge_rel_uni = edge_rel1_uni feed edge_rel2_uni feed concat consume; 
+
+delete edge_rel1_uni;
+
+delete edge_rel2_uni;
+
+#indoor navigation graph 
+
+let ig_uni = createigraph(1, node_rel_uni, edge_rel_uni, "UNIVERSITY");
+
+delete node_rel_uni;
+
+delete edge_rel_uni;
+
+#let ip_uni = generate_ip1(fernuni, 100, TRUE) consume;
+
+######### for doing experiments ##########
+let ip_uni = generate_ip1(fernuni, 500, TRUE) consume;
+
+## location on the staircase ####
+#let ip_uni_2 = generate_ip1(fernuni, 50, FALSE) consume;
+
+######### for doing experiments ##########
+let ip_uni_2 = generate_ip1(fernuni, 500, FALSE) consume;
+
+let btree_groom_uni = fernuni createbtree[Oid]; 
+
+#indoor navigation, shortest path with length, rooms  
+
+###########################################################################
+############################# Query #######################################
+##############################################################################
+
+#query fernuni;
+#query fernuni_d; 
+######## length #########
+#query indoornavigation(ig_uni, ip_uni feed addcounter[Id,1] filter[.Id = 3] extract[Loc1],ip_uni feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], fernuni, btree_groom_uni, 0) consume; 
+
+#query indoornavigation(ig_uni, ip_uni_2 feed addcounter[Id,1] filter[.Id = 3] extract[Loc1],ip_uni_2 feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], fernuni, btree_groom_uni, 0) consume; 
+
+
+######## room #########
+# query indoornavigation(ig_uni, ip_uni feed addcounter[Id,1] filter[.Id = 1] extract[Loc1],ip_uni feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], fernuni, btree_groom_uni, 1) consume;
+
+
+######## time #########
+# query indoornavigation(ig_uni, ip_uni feed addcounter[Id,1] filter[.Id = 1] extract[Loc1],ip_uni feed addcounter[Id,1] filter[.Id = 2] extract[Loc1], fernuni, btree_groom_uni, 2) consume;
+
+#################### Moving Objects #############################
+let Monday_uni = theRange(theInstant(2011,11,7,9,0,0,0), theInstant(2011,11,7,21,0,0,0), TRUE, FALSE);
+
+let rtree_groom_uni = fernuni feed addid extend[BBox:bbox3d(.Room)] sortby[BBox]  bulkloadrtree[BBox];
+
+#let mo_uni = generate_mo1(ig_uni, fernuni, btree_groom_uni, rtree_groom_uni, 200.0, Monday_uni) consume;
+
+## moving objects from a room to the building entrance door ##
+## 50 without reading paths from file: 114 seconds ##
+## 50 reading paths from file ##
+#let mo_uni_2 = generate_mo1(ig_uni, fernuni, btree_groom_uni, rtree_groom_uni, -50.0, Monday_uni) consume;
+
+###############################################
+############ create building  #################
+###############################################
+
+let fernuni_extend = fernuni feed addid extend[BBox:bbox3d(.Room)] sortby[BBox] consume;
+
+let building_uni = thebuilding(1, "UNIVERSITY", fernuni, fernuni_extend);
+
+delete fernuni_extend;
+
+##### 1680 paths + groom tid: 30 minutes 1 entrance ########
+
+query addinfragraph(building_uni, ig_uni) consume;
+
+#close database;
+
+

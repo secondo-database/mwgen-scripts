@@ -1,0 +1,180 @@
+
+### switch off transactions: SecondoConfig.ini RTFlags += SMI:NoTransactions
+
+create database berlingenmo;
+open database berlingenmo;
+
+let roadwidth = 4;
+
+restore r from 'TM-Data/berlinroads';
+
+
+restore streets_speed from 'TM-Data/streets_speed';
+
+let j =
+r feed {r1}
+r feed {r2}
+#spatialjoin [curve_r1, curve_r2]
+spatialjoin0 [Curve_r1, Curve_r2]
+filter [.Id_r1 < .Id_r2]
+filter [.Curve_r1 intersects .Curve_r2]
+projectextendstream[Id_r1, Curve_r1, Id_r2, Curve_r2; CROSSING_POINT: components(crossings(.Curve_r1, .Curve_r2))]
+extend [R1id : .Id_r1]
+extend [R1meas : at_point(.Curve_r1, .CROSSING_POINT, TRUE)]
+extend [R2id : .Id_r2]
+extend [R2meas : at_point(.Curve_r2, .CROSSING_POINT, TRUE)]
+extend [Cc: 65535]
+project [R1id, R1meas, R2id, R2meas, Cc]
+consume;
+
+
+let rn = thenetwork(1, 1.0, r, j);
+
+close database;
+
+
+# x:[0, 44411]
+# y:[0, 34781]
+
+###############################
+#### create pavement areas  ###
+###############################
+
+open database berlingenmo;
+
+@createpave1.sec;
+
+
+### do not sort by any order  ###
+let dg_node = triangulation(node_reg) transformstream addcounter[Oid, pave_oid] extend[Rid:.Oid] extend[Pavement:.Elem] project[Oid, Rid, Pavement] consume;
+
+let tri_reg_new = triangulation_new(node_reg) consume;
+
+query putrel(space_1, tri_reg_new) consume;
+
+
+@createpave2.sec;
+
+####################################################
+### create bus routes, bus stops for bus network ###
+#####   create moving buses       #######
+##### bus infrastructure, bus graph  ####
+####################################################
+open database berlingenmo;
+
+let cell_no = 20;
+
+#1. no of bus routes for the third type (cells from low density area)
+#2.3 minimum distance between start and end cells
+
+(create bus_para:(rel(tuple((Para real)))));
+(update bus_para:=((rel(tuple((Para real))))(
+(30.0)
+(16000.0)
+(22000.0)
+)));
+
+(create stop_para:(rel(tuple((Para real)))));
+(update stop_para:=((rel(tuple((Para real))))(
+(15.0) (1000.0) (900.0) (1100.0) (1550) (1350.0) (1450.0) (1150.0) (950.0) (1200.0) (1600.0) (1500) (1400.0) (1300.0) (800.0) (500.0)
+)));
+
+##################################
+#### traffic value ###############
+##################################
+#let car_no = 50000.0;
+
+#let dataSNcar = generate_car(space_1, TwoDays, car_no, streets_speed) project[Trip2] consume;
+
+#save dataSNcar to 'TM-Data/berlincars';
+
+#restore dataSNcar from 'TM-Data/berlincars';
+
+####### Compute the traffic values  ####
+
+#let traffic_rel1 = dataSNcar mgp2mgpsecunits[Trip2,rn,1000.0] trafficflow2;
+
+#delete dataSNcar;
+
+#save traffic_rel1 to 'TM-Data/berlintraffic';
+
+################################
+################################
+
+restore traffic_rel1 from 'TM-Data/berlintraffic';
+
+#################### the meaning of the relation #####################
+# (rel (tuple ((secid int) (part int) (dir int) (speed mreal) (flow mint))))
+# part --- partition number dir ---direction
+# speed -- average speed of all cars, time dependent
+# flow -- traffic flow
+# map the value into each bus route and set time schedule for moving buses 
+########################################################################
+
+let map_para = 2.0;
+
+
+@createbus.sec;
+
+
+close database;
+
+####################################################
+###### create metro routes, stops, moving metros####
+###### create metro infrastructure, metro graph ####
+####################################################
+open database berlingenmo;
+
+restore temp_r from 'TM-Data/berlinroads';
+
+let cell_no_2 = 30;
+
+let cellbox_list_2 = cellbox(bbox(newboundary), cell_no_2) consume;
+
+let cell_join_r_2 = temp_r feed {f} cellbox_list_2 feed {w} symmjoin[toline(.Curve_f) intersects ..Cover_area_w] project[Id_f, Cellid_w, Cover_area_w] consume;
+
+let cell_join_r_group_2 = cell_join_r_2 feed sortby[Cellid_w] groupby[Cellid_w;Cnt:group count] consume;
+
+### box with oid, number of roads intersection 
+let dg_cell_node = cell_join_r_group_2 feed {a} cellbox_list_2 feed {b} symmjoin[.Cellid_w_a = ..Cellid_b] addcounter[Oid,1] extend[Rid:.Cnt_a] extend[Pavement:.Cover_area_b] project[Oid,Rid,Pavement] consume;
+
+(create metro_para:(rel(tuple((Para real)))));
+(update metro_para:=((rel(tuple((Para real))))(
+(10.0)
+(25000.0)
+(1500.0)
+)));
+
+
+@createmetro.sec;
+
+delete cell_join_r_group_2;
+
+delete cell_join_r_2;
+
+
+close database;
+
+#############################################################
+########## create 2D building areas and paths to pavement ###
+#############################################################
+open database berlingenmo;
+
+(create building_para:(rel(tuple((Para real)))));
+(update building_para:=((rel(tuple((Para real))))(
+(0.0)
+)));
+
+@createindoor.sec;
+
+
+close database;
+
+##############################################
+######### create moving objects ##############
+##############################################
+
+#@createberlingenmotest.sec;
+
+
+

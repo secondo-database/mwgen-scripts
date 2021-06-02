@@ -1,0 +1,291 @@
+
+let cellbox_list = cellbox(bbox(newboundary), cell_no) consume;
+
+let rtree_box = cellbox_list feed addid bulkloadrtree[Cover_area];
+
+let street_sections = sections(rn);
+
+let cell_join = tm_join1(street_sections, cellbox_list, rtree_box) consume;
+
+delete cellbox_list;
+
+let section_cell_index = cell_join createbtree [Cellid];
+
+
+let rough_pair = create_bus_route1(rn,cell_join,Cellid,Cnt,Cover_area,
+section_cell_index, bus_para) consume;
+
+delete rtree_box;
+
+
+let busroutes_tmp = create_bus_route2(space_1,cell_join,Secid,section_cell_index,
+rough_pair, Start_cell_id, End_cell_id, Route_type) consume;
+
+delete section_cell_index;
+
+delete rough_pair;
+
+delete street_sections;
+
+delete cell_join;
+
+#refine bus routes 
+let busroutes = refine_bus_route(rn, busroutes_tmp, Br_id, Bus_route1, Bus_route2, Start_loc, End_loc, Route_type) consume;
+
+delete busroutes_tmp;
+
+#translate bus route into two: up and down 
+let newbusroutes = create_bus_route3(busroutes, Br_id, Bus_route2, Route_type,roadwidth/2) consume;
+
+let btree_pave2 = subpaves2 createbtree[Rid];
+
+let bus_stops1 = create_bus_stop1(rn, busroutes, Br_id, Bus_route1, Bus_route2, Route_type, subpaves2, btree_pave2, stop_para) consume;
+
+delete subpaves2;
+
+### merge bus stops in the same road section ###
+
+let bus_stops2 = create_bus_stop2(rn, bus_stops1, Br_id, Bus_stop_id, Bus_stop1) sortby[Br_id, Bus_stop_id] consume;
+
+delete bus_stops1;
+
+let btree_sec_id = bus_stops2 createbtree [Sec_id];
+
+# merge bus stops in adjacet road sections 
+let bus_stops3 = create_bus_stop3(rn, busroutes, Bus_route1, bus_stops2, Br_id, Bus_stop_id, Bus_stop1, btree_sec_id) consume; 
+
+delete bus_stops2;
+
+delete btree_sec_id;
+
+#### new representation for bus stops (id,pos)  translate bus stops 
+let bus_stops4 =  create_bus_stop4(newbusroutes, Bus_route1, Bus_route2, bus_stops3, Br_id, Bus_stop_id, Bus_stop2, StartSmaller) consume;
+
+#### set the up and down direction for each route (Query)
+let final_busroutes = create_bus_route4(newbusroutes, Br_id, Bus_route2, Route_type, Br_uid,
+bus_stops3, Br_id, StartSmaller) consume; 
+
+delete bus_stops3;
+
+##### set the up and down value for each bus stop (Query) ####
+
+let final_busstops = create_bus_stop5(final_busroutes, Bus_direction, bus_stops4, Br_id, Br_uid, Bus_stop_id, Bus_stop2, Bus_pos) consume;
+
+delete newbusroutes;
+
+delete bus_stops4;
+
+##################################
+########      query      #########
+##################################
+#1 bus routes, use red color in Javagui
+#query final_busroutes;
+
+#2 bus stops, use light red color in Javagui (rectangle size 7)
+#query final_busstops;
+
+#########################################################
+######## bus network, bus graph, moving buses   #########
+#########################################################
+
+let streets = r feed streets_speed feed symmjoin[.Id = ..Id_b] extend[GeoData:toline(.Curve)]
+project[Vmax, GeoData] consume;
+
+
+##### very careful with the time ####
+
+let night1 = theRange(theInstant(2011,11,6,0,0,0,0), theInstant(2011,11, 6,5,0,0,0), TRUE, FALSE);
+
+let night2 = theRange(theInstant(2011,11,6,21,0,0,0), theInstant(2011,11,6,24,0,0,0), TRUE, FALSE);
+
+let btree_traffic = traffic_rel1 createbtree[Secid];
+
+let br_traffic = get_route_density1(rn,traffic_rel1,Secid,Flow,btree_traffic,busroutes, Br_id, Bus_route1,night1,night2) consume; 
+
+
+let NUM_NIGHT_BUS = 25;
+
+let night_bus = br_traffic feed sortby[Traffic_flow desc] head[NUM_NIGHT_BUS] consume;
+
+delete br_traffic;
+
+
+##### time schedule for night bus ###
+let ts_nightbus = set_ts_nightbus(night_bus, Br_id, Duration1, Duration2, night1,night2) consume;
+
+### create speed limit value for each bus route 
+let br_speed = set_br_speed(rn, busroutes, Br_id, Bus_route1, streets, Vmax, final_busroutes, StartSmaller) consume;
+
+let btree_br_speed = br_speed createbtree[Br_id];
+
+let btree_bs = final_busstops createbtree[Br_id];
+
+##### create the bus route segment combined with speed value  (Query) ###
+let bus_segment_speed = create_bus_segment_speed(final_busroutes, Br_id, Bus_route, Bus_direction, StartSmaller, final_busstops, Bus_pos, Stop_direction, btree_bs, br_speed, btree_br_speed) consume;
+
+delete br_speed;
+
+delete btree_br_speed;
+
+delete streets;
+
+let btree_seg_speed = bus_segment_speed createbtree[Br_id];
+
+##### create moving bus represented by mpoint for night bus (Query)
+
+let night_bus_rel = create_night_bus_mo(ts_nightbus,bus_segment_speed,btree_seg_speed) consume;
+
+let Sunday = theRange(theInstant(2011,11,6,9,0,0,0), theInstant(2011,11,6,21,0,0,0), TRUE, FALSE);
+
+let Monday = theRange(theInstant(2011,11,7,6,0,0,0), theInstant(2011,11,7,21,0,0,0), TRUE, FALSE);
+
+#### get traffic flow value for day time bus ###
+
+let day_bus = get_route_density1(rn,traffic_rel1, Secid, Flow, btree_traffic, busroutes, Br_id, Bus_route1, Monday,Sunday) sortby[Traffic_flow desc] consume; 
+
+# set time schedule for day time bus
+let ts_daybus = set_ts_daybus(day_bus, Br_id, Duration1, Duration2,Monday,Sunday) consume; 
+
+delete day_bus;
+
+delete busroutes;
+
+delete ts_nightbus;
+
+#### create daytime moving bus (Query)
+let daytime_bus_rel = create_daytime_bus_mo (ts_daybus,bus_segment_speed,btree_seg_speed) consume;
+
+delete bus_segment_speed;
+
+delete btree_seg_speed;
+
+delete traffic_rel1;
+
+### two days for all buses:Sunday and Monday  ###########
+
+#### get all buses (Query)
+
+let all_bus_rel = night_bus_rel feed daytime_bus_rel feed concat consume; 
+
+delete night_bus_rel;
+
+delete daytime_bus_rel;
+
+let btree_mo = all_bus_rel createbtree[Br_id];
+
+####compact storage of time tables (Query) time: 
+
+let bus_time_table_compact = create_time_table1(final_busstops, all_bus_rel, btree_mo, night1, night2) sortby[Bus_uoid] consume;
+
+
+#################################################################################
+###################### Create Bus Stops, Bus Routes   ###########################
+###################### Bus Network Graph  #######################################
+###################### Build Bus Network ########################################
+#################################################################################
+
+let bus_stops = getbusstops(final_busstops, btree_bs, final_busroutes) consume;
+
+### the large overall polygon is also considered as an infrastructure object ##
+
+let br_oid = routes(rn) count + dg_node count + 2;
+
+let bus_routes = getbusroutes(final_busstops, btree_bs, final_busroutes) addcounter[Oid, br_oid] consume;
+
+let btree_br = bus_routes createbtree[Br_id];
+
+delete final_busstops;
+
+delete final_busroutes;
+
+###################   moving buses  ####################
+
+### the large overall polygon is also considered as an infrastructure object ##
+
+let mo_bus_oid = routes(rn) count + dg_node count + bus_routes count + 2;
+
+let genmo_bus = refmo2genmo(all_bus_rel, bus_routes, btree_br) addcounter[Oid, mo_bus_oid] consume;
+
+###################################################################
+#id 1 crashes 
+
+let bn = thebusnetwork(2, bus_stops, bus_routes, genmo_bus);
+
+#### map bus stops to the pavements #####
+### the similar thing occurs for metro stops ###
+
+let dg_node_sort = dg_node feed extend[BBox:bbox(.Pavement)] sortby[BBox] remove[BBox] consume;
+
+let rtree_dg = dg_node_sort feed addid bulkloadrtree[Pavement];
+
+let bs_pave = mapbstopave(bn, rtree_dg, dg_node_sort, roadwidth, map_para) consume; 
+
+#######################
+### create bus graph ##
+#######################
+
+let bs_pave_sort = bs_pave feed extend[BBox:bbox(.Pave_loc2)] extend[Bus_stop_loc:bsgeodata(.Bus_stop, bn)] sortby[BBox] remove[BBox] consume;
+
+let rtree_bs_pave = bs_pave_sort feed addid bulkloadrtree[Pave_loc2];
+
+let bsneighbors1 = bs_neighbors1(dg, vg, tri_reg_new, bs_pave_sort, rtree_bs_pave) addcounter[Bus_stop2_tid, 1] sortby[Bus_uoid] consume;
+
+let bsneighbors2 = bs_neighbors2(bn) addcounter[Bus_stop2_tid, 1] sortby[Bus_uoid] consume;
+
+let bsneighbors3 = bs_neighbors3(bus_time_table_compact, all_bus_rel, btree_mo) sortby[Bus_uoid] addcounter[Bus_stop2_tid, 1] consume;
+
+
+query putrel(space_1, bs_pave_sort) consume;
+
+delete bus_time_table_compact;
+
+
+
+######### bus graph ########## 
+let bg = createbgraph(1, bus_stops, bsneighbors1, bsneighbors2, bsneighbors3);
+
+query bsneighbors1 count;
+
+query bsneighbors2 count;
+
+query bsneighbors3 count;
+
+delete bsneighbors1;
+
+delete bsneighbors2;
+
+delete bsneighbors3;
+
+############ add bus graph to bus network######################
+query addinfragraph(bn, bg) consume; 
+
+################### add busnetwork infrastructure into space #####
+query putinfra(space_1, bn) consume;
+
+query getinfra(space_1, "BUSSTOP") count;
+
+query getinfra(space_1, "BUSROUTE") count;
+
+query getinfra(space_1, "BUS") count;
+
+##### get pavement areas nearby bus stops ############
+
+delete streets_speed;
+
+################ delete parameters #########
+
+delete stop_para;
+
+delete cell_no;
+
+delete bus_para;
+
+delete map_para;
+
+################ query  ##################
+
+#query bn_busroutes(bn) extend[Geo:brgeodata(.Bus_route)] consume;
+
+#query bn_busstops(bn) extend[Geo:bsgeodata(.Bus_stop, bn)] extend[Id:ref_id(.Bus_stop)] extend[Stop_id:getstopid(.Bus_stop)] extend[Up:up_down(.Bus_stop)] consume;
+
+

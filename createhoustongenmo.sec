@@ -1,0 +1,191 @@
+
+### switch off transactions: SecondoConfig.ini RTFlags += SMI:NoTransactions
+
+create database houstongenmo;
+
+open database houstongenmo;
+
+restore r from 'TM-Data/houstonroads';
+
+let j =
+r feed {r1}
+r feed {r2}
+#spatialjoin [Curve_r1, Curve_r2]
+spatialjoin0 [Curve_r1, Curve_r2]
+filter [.Id_r1 < .Id_r2]
+filter [.Curve_r1 intersects .Curve_r2]
+projectextendstream[Id_r1, Curve_r1, Id_r2, Curve_r2; CROSSING_POINT: components(crossings(.Curve_r1, .Curve_r2))]
+extend [R1id : .Id_r1]
+extend [R1meas : at_point(.Curve_r1, .CROSSING_POINT, TRUE)]
+extend [R2id : .Id_r2]
+extend [R2meas : at_point(.Curve_r2, .CROSSING_POINT, TRUE)]
+extend [Cc: 65535]
+project [R1id, R1meas, R2id, R2meas, Cc]
+consume;
+
+let rn = thenetwork(1, 1.0, r, j);
+
+let roadwidth = 4;
+
+let streettoreal = fun(str:real)
+ifthenelse( str < 30, 10.0, 
+  (ifthenelse( str < 200, 30.0, 
+      (ifthenelse( str < 1000, 50.0, 
+            (ifthenelse( str < 5000, 70.0, 100.0)
+            )
+         )
+      )
+    )
+  )
+);
+
+let streets_speed = r feed extend[Id_b:.Id] extend[Vmax:streettoreal(size(.Curve))] project[Id_b, Vmax] consume;
+
+close database;
+
+
+#x: [12.06, 133584.71]
+#y: [0.166, 163280.46]
+
+###############################
+#### create pavement areas  ###
+###############################
+
+open database houstongenmo;
+
+@createpave1.sec;
+
+
+### do not sort by any order  ###
+
+let dg_node = triangulation2(node_reg) transformstream addcounter[Oid, pave_oid] extend[Rid:.Oid] extend[Pavement:.Elem] project[Oid, Rid, Pavement] consume;
+
+########### Houston: 6 minutes ###
+let tri_reg_new = triangulation_new2(node_reg) consume;
+
+query putrel(space_1, tri_reg_new) consume;
+
+
+@createpave2.sec;
+
+
+####################################################
+### create bus routes, bus stops for bus network ###
+#####   create moving buses       #######
+##### bus infrastructure, bus graph  ####
+####################################################
+open database houstongenmo;
+
+let cell_no = 30;
+
+#1. no of bus routes for one type
+#2.3 minimum distance between start and end points 
+
+(create bus_para:(rel(tuple((Para real)))));
+(update bus_para:=((rel(tuple((Para real))))(
+(60.0)
+(40000.0)
+(50000.0)
+)));
+
+(create stop_para:(rel(tuple((Para real)))));
+(update stop_para:=((rel(tuple((Para real))))(
+(15.0) (2600.0) (2550.0) (2350.0) (2250.0) (2650.0) (2100.0) (2300.0) (2450.0) (2400.0) (2200.0) (2500.0) (2700.0) (2750.0) (2800.0) (3000.0)
+)));
+
+
+
+##################################
+#### traffic value ###############
+##################################
+
+#let car_no = 20000.0;
+
+#let dataSNcar = generate_car(space_1, TwoDays, car_no, streets_speed) project[Trip2] consume;
+
+#save dataSNcar to 'TM-Data/houstoncars';
+
+#restore dataSNcar from 'TM-Data/houstoncars';
+
+#let traffic_rel1 = dataSNcar mgp2mgpsecunits[Trip2,rn,1000.0] trafficflow2;
+
+#delete dataSNcar;
+
+#save traffic_rel1 to 'TM-Data/houstontraffic';
+
+####################################
+
+restore traffic_rel1 from 'TM-Data/berlintraffic';
+
+#################### the meaning of the relation #####################
+# (rel (tuple ((secid int) (part int) (dir int) (speed mreal) (flow mint))))
+# part --- partition number dir ---direction
+# speed -- average speed of all cars, time dependent
+# flow -- traffic flow
+# map the value into each bus route and set time schedule for moving buses 
+################################################################################
+
+let map_para = 4.0;
+
+@createbus.sec;
+
+
+close database;
+
+####################################################
+###### create metro routes, stops, moving metros####
+###### create metro infrastructure, metro graph ####
+####################################################
+open database houstongenmo;
+
+restore temp_r from 'TM-Data/houstonroads';
+
+let cell_no_2 = 50;
+
+let cellbox_list_2 = cellbox(bbox(newboundary), cell_no_2) consume;
+
+let street_sections = sections(rn);
+
+let rtree_box_2 = cellbox_list_2 feed addid bulkloadrtree[Cover_area];
+
+####### range: x-[12,133584] y-[0.16,163280] ###
+### box with oid, number of roads intersection ##
+let dg_cell_node = tm_join1(street_sections, cellbox_list_2, rtree_box_2) addcounter[Oid,1] extend[Rid:.Cnt] extend[Pavement:.Cover_area] project[Oid, Rid, Pavement] consume;
+
+(create metro_para:(rel(tuple((Para real)))));
+(update metro_para:=((rel(tuple((Para real))))(
+(16.0)
+(60000.0)
+(6000.0)
+)));
+
+
+@createmetro.sec;
+
+delete street_sections;
+
+delete rtree_box_2;
+
+close database;
+
+#############################################################
+########## create 2D building areas and paths to pavement ###
+#############################################################
+open database houstongenmo;
+
+(create building_para:(rel(tuple((Para real)))));
+(update building_para:=((rel(tuple((Para real))))(
+(0.9)
+)));
+
+@createindoor.sec;
+
+close database;
+
+##############################################
+######### create moving objects ##############
+##############################################
+
+#@createhoustongenmotest.sec;
+
+
