@@ -17,8 +17,10 @@ r feed {r2}
 #spatialjoin [curve_r1, curve_r2]
 spatialjoin0 [Curve_r1, Curve_r2]
 filter [.Id_r1 < .Id_r2]
-filter [.Curve_r1 intersects .Curve_r2]
-projectextendstream[Id_r1, Curve_r1, Id_r2, Curve_r2; CROSSING_POINT: components(crossings(.Curve_r1, .Curve_r2))]
+filter [.Curve_r1 intersects1 .Curve_r2]
+projectextendstream[Id_r1, Curve_r1, Id_r2, Curve_r2; CROSSING_POINTS: components(crossings1(.Curve_r1, .Curve_r2))]
+extend [CROSSING_POINT : single(.CROSSING_POINTS)]
+filter [isdefined(.CROSSING_POINT)]
 extend [R1id : .Id_r1]
 extend [R1meas : at_point(.Curve_r1, .CROSSING_POINT, TRUE)]
 extend [R2id : .Id_r2]
@@ -42,7 +44,7 @@ close database;
 
 open database berlingenmo;
 
-@createpave1.sec;
+@TM-Data/MWGen/createpave1.sec;
 
 
 ### do not sort by any order  ###
@@ -53,7 +55,7 @@ let tri_reg_new = triangulation_new(node_reg) consume;
 query putrel(space_1, tri_reg_new) consume;
 
 
-@createpave2.sec;
+@TM-Data/MWGen/createpave2.sec;
 
 ####################################################
 ### create bus routes, bus stops for bus network ###
